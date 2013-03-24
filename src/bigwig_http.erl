@@ -19,22 +19,23 @@ start_link() ->
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
 
-dispatch_rules() ->
-    %% {Host, list({Path, Handler, Opts})}
-    [{'_', [
+%% dispatch_rules() ->
+%%     %% {Host, list({Path, Handler, Opts})}
+%%     [{'_', [
 
-            {[],                       bigwig_http_static, [<<"html">>,<<"index.html">>]}
-        ,   {[<<"static">>, '...'],     bigwig_http_static, []}
-        ,   {[<<"vm">>],                bigwig_http_vm, []}
-        ,   {[<<"rb">>, <<"stream">>],  bigwig_http_rb_stream, []}
-        ,   {[<<"rb">>, '...'],         bigwig_http_rb, []}
-        ,   {[<<"pid">>, '...'],        bigwig_http_pid, []}
-        ,   {[<<"module">>, '...'],     bigwig_http_module, []}
-        ,   {[<<"top">>, '...'],        bigwig_http_etop2, []}
-        ,   {[<<"appmon">>, '...'],     bigwig_http_appmon, []}
-        ,   {[<<"stats-stream">>],      bigwig_http_stats_stream, []}
-        ,   {'_',                       bigwig_http_catchall, []}
-    ]}].
+%%             {[],                       bigwig_http_static, [<<"html">>,<<"index.html">>]}
+%%         ,   {[<<"static">>, '...'],     bigwig_http_static, []}
+%%         ,   {[<<"vm">>],                bigwig_http_vm, []}
+%%         ,   {[<<"rb">>, <<"stream">>],  bigwig_http_rb_stream, []}
+%%         ,   {[<<"rb">>, '...'],         bigwig_http_rb, []}
+%%         ,   {[<<"pid">>, '...'],        bigwig_http_pid, []}
+%%         ,   {[<<"module">>, '...'],     bigwig_http_module, []}
+%%         ,   {[<<"top">>, '...'],        bigwig_http_etop2, []}
+%%         ,   {[<<"appmon">>, '...'],     bigwig_http_appmon, []}
+%%         ,   {[<<"stats-stream">>],      bigwig_http_stats_stream, []}
+%%         ,   {'_',                       bigwig_http_catchall, []}
+%%     ]}].
+
 
 confval(Key, Default) ->
     case application:get_env(Key) of
@@ -49,11 +50,27 @@ init([]) ->
 
     IpStr = case is_list(Ip) of true -> Ip; false -> inet_parse:ntoa(Ip) end,
     error_logger:info_msg("Bigwig listening on http://~s:~B/~n", [IpStr,Port]),
-    %%
-    %% Name, NbAcceptors, Transport, TransOpts, Protocol, ProtoOpts
-    cowboy:start_listener(http, NumAcceptors,
-        cowboy_tcp_transport, [{port, Port}],
-        cowboy_http_protocol, [{dispatch, dispatch_rules()}]
+
+    Dispatch = cowboy_router:compile(
+                 [
+                  %% {URIHost, list({URIPath, Handler, Opts})}
+                  {'_', [
+                         {"/appmon",     bigwig_http_appmon, []},
+                         {"/vm",         bigwig_http_vm,     []},
+                         {"/rb/stream",           bigwig_http_rb_stream,     []},
+                         {"/rb/[:bw_rb]",         bigwig_http_rb,     []},
+                         {"/pid/[:bw_pid]",       bigwig_http_pid,    []},
+                         {"/module/[:bw_module]", bigwig_http_module, []},
+                         {"/top",             bigwig_http_etop2,  []},
+                         {"/stats-stream",    bigwig_http_stats_stream, []},
+                         {"/static/[...]",  bigwig_http_static, []},
+                         {'_',        bigwig_http_catchall, []}
+                        ]}
+                 ]),
+
+     cowboy:start_http(bigwig_http, NumAcceptors,
+         [{port, Port}],
+         [{env,[{dispatch, Dispatch}]}]
     ),
 
     {ok, #state{}}.

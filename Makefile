@@ -5,8 +5,12 @@ REBAR = ./rebar
 
 all: app
 
-app:
+app: deps
 	@$(REBAR) compile
+
+.PHONY: deps
+deps:
+	@$(REBAR) get-deps
 
 clean:
 	@$(REBAR) clean

@@ -3,37 +3,41 @@
 %%
 -module(bigwig_http_pid).
 -behaviour(cowboy_http_handler).
--export([init/3, handle/2, terminate/2]).
+-export([init/3, handle/2, terminate/3]).
 
 init({tcp, http}, Req, _Opts) ->
     {ok, Req, undefined_state}.
 
 handle(Req0, State) ->
-    {Path, Req} = cowboy_http_req:path(Req0),
-    {Method, Req1} = cowboy_http_req:method(Req),
-    handle_path(Method, Path, Req1, State).
+    {_Path, Req} = cowboy_req:path(Req0),
+    {Method, Req1} = cowboy_req:method(Req),
+    {Pid, _Req2} = cowboy_req:binding(bw_pid,Req0),
+    handle_path(Method, Pid, Req1, State).
 
-handle_path('GET', [<<"pid">>, <<"global">>, Name], Req, State) ->
-    handle_get_pid(fun to_global_pid/1, Name, Req, State);
-handle_path('GET', [<<"pid">>, Pid], Req, State) ->
+%% FIXME: globals
+%%handle_path(<<"GET">>, [<<"/pid">>, <<"global">>, Name], Req, State) ->
+%%    handle_get_pid(fun to_global_pid/1, Name, Req, State);
+handle_path(<<"GET">>, Pid, Req, State) ->
     handle_get_pid(fun to_pid/1, Pid, Req, State);
-handle_path('POST', [<<"pid">>, <<"global">>, Name], Req, State) ->
-    handle_post_pid(fun to_global_pid/1, Name, Req, State);
-handle_path('POST', [<<"pid">>, Pid], Req, State) ->
+%%handle_path(<<"POST">>, [<<"/pid">>, <<"global">>, Name], Req, State) ->
+%%    handle_post_pid(fun to_global_pid/1, Name, Req, State);
+handle_path(<<"POST">>, Pid, Req, State) ->
     handle_post_pid(fun to_pid/1, Pid, Req, State);
-handle_path('DELETE', [<<"pid">>, Pid], Req, State) ->
+handle_path(<<"DELETE">>, Pid, Req, State) ->
     handle_delete_pid(fun to_pid/1, Pid, Req, State);
-handle_path(_, _, Req, State) ->
+handle_path(Method, Path, Req, State) ->
+    io:format("bigwig_http_pid:handle_path/4 not matched, Path is:~p, Method is:~p~n",[Path,Method]),
     not_found(Req, State).
 
 not_found(Req, State) ->
-    {ok, Req2} = cowboy_http_req:reply(404, [], <<"<h1>404</h1>">>, Req),
+    {ok, Req2} = cowboy_req:reply(404, [], <<"<h1>404</h1>">>, Req),
     {ok, Req2, State}.
 
-terminate(_Req, _State) ->
+terminate(_Reason, _Req, _State) ->
     ok.
 
 handle_get_pid(Get, Pid0, Req, State) ->
+    %% io:format("bigwig_http_pid:handle_get_pid/4 looking for pid:~p~n",[Pid0]),
     case catch(Get(Pid0)) of
         Pid when is_pid(Pid) -> pid_response(Pid, Req, State);
         _ -> not_found(Req, State)
@@ -50,13 +54,13 @@ handle_delete_pid(Get, Pid0, Req, State) ->
     case catch(Get(Pid0)) of
         Pid when is_pid(Pid) ->
             erlang:exit(Pid, kill),
-            {ok, Req2} = cowboy_http_req:reply(200, [], "killed", Req),
+            {ok, Req2} = cowboy_req:reply(200, [], "killed", Req),
             {ok, Req2, State};
         _ -> not_found(Req, State)
     end.
 
 post_pid_response(Pid, Req, State) ->
-    {Res, Req1} = cowboy_http_req:body_qs(Req),
+    {Res, Req1} = cowboy_req:body_qs(Req),
     Headers = [{<<"Content-Type">>, <<"application/x-erlang-term">>}],
     {ok, Req2} =
         case lists:keyfind(<<"msg">>, 1, Res) of
@@ -64,12 +68,12 @@ post_pid_response(Pid, Req, State) ->
                 case catch(bigwig_util:parse_term(TermStr)) of
                     {ok, Term} ->
                         Body = io_lib:format("~p", [Pid ! Term]),
-                        cowboy_http_req:reply(202, Headers, Body, Req1);
+                        cowboy_req:reply(202, Headers, Body, Req1);
                     _ ->
-                        cowboy_http_req:reply(400, Headers, <<"{error, badarg}">>, Req1)
+                        cowboy_req:reply(400, Headers, <<"{error, badarg}">>, Req1)
                 end;
             _ ->
-                cowboy_http_req:reply(400, Headers, <<"{error, msg_required}">>, Req1)
+                cowboy_req:reply(400, Headers, <<"{error, msg_required}">>, Req1)
         end,
     {ok, Req2, State}.
 
@@ -85,11 +89,14 @@ to_global_pid(Name) ->
     global:whereis_name(list_to_existing_atom(binary_to_list(Name))).
 
 pid_response(Pid, Req, State) ->
+    %% io:format("~p:pid_response/3 looking for pid:~p~n",[?MODULE,Pid]),
     case erlang:process_info(Pid) of
-        undefined -> not_found(Req, State);
+        undefined ->
+            io:format("~p:pid_response/3 couldn't find pid:~p~n",[?MODULE,Pid]),
+            not_found(Req, State);
         Info ->
             Body = jsx:term_to_json(Info),
             Headers = [{<<"Content-Type">>, <<"application/json">>}],
-            {ok, Req2} = cowboy_http_req:reply(200, Headers, Body, Req),
+            {ok, Req2} = cowboy_req:reply(200, Headers, Body, Req),
             {ok, Req2, State}
     end.
