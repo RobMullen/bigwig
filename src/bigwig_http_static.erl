@@ -32,15 +32,29 @@ send(Req, PathBins, State) ->
                    Other -> Other
                end,
 
-  case file(FileName) of
-      {ok, Body} ->
-          Headers = [{<<"Content-Type">>, <<"text/html">>}],
-          {ok, Req2} = cowboy_req:reply(200, Headers, Body, Req),
-          {ok, Req2, State};
-      _ ->
-          {ok, Req2} = cowboy_req:reply(404, [], <<"404'd">>, Req),
-          {ok, Req2, State}
-  end.
+    case string:substr(FileName, string:rstr(FileName,".")) of
+        ".css" ->
+            Headers = [{<<"Content-Type">>, <<"text/css">>}];
+        ".js" ->
+            Headers = [{<<"Content-Type">>, <<"text/javascript">>}];
+        ".png" ->
+            Headers = [{<<"Content-Type">>, <<"image/png">>}];
+        ".gif" ->
+            Headers = [{<<"Content-Type">>, <<"image/gif">>}];
+        ".jpg" ->
+            Headers = [{<<"Content-Type">>, <<"image/jpg">>}];
+        _ ->
+            Headers = [{<<"Content-Type">>, <<"text/html">>}]
+    end,
+
+    case file(FileName) of
+        {ok, Body} ->
+            {ok, Req2} = cowboy_req:reply(200, Headers, Body, Req),
+            {ok, Req2, State};
+        _ ->
+            {ok, Req2} = cowboy_req:reply(404, [], <<"404'd">>, Req),
+            {ok, Req2, State}
+    end.
 
 terminate(_Reason, _Req, _State) ->
   ok.
